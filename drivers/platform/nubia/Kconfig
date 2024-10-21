@@ -1,0 +1,17 @@
+# Nubia configuration options
+
+config BOARD_NUBIA
+	bool "Nubia device"
+	depends on ARCH_MSM
+	help
+	  Support for MSM8996-based Nubia variants
+
+menu "Nubia board selection"
+
+config BOARD_NUBIA_NX531J
+	bool "NX531J board"
+	select BOARD_NUBIA
+	help
+	  Support for Nubia Z11
+
+endmenu
