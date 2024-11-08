@@ -186,6 +186,16 @@ struct msm_actuator_cfg_data32 {
 		struct msm_actuator_get_info_t get_info;
 		struct msm_actuator_set_position_t setpos;
 		enum af_camera_name cam_name;
+#ifdef CONFIG_BOARD_NUBIA
+		// ZTEMT: fuyipeng add for manual AF -----start
+		char *act_name;
+		// ZTEMT: fuyipeng add for manual AF -----end			
+		int infinity_pos; // ZTEMT: jixiangdong modify
+		// ZTEMT: fuyipeng modify for OIS -----start
+		int ois_mode;
+		int ois_enable;
+		// ZTEMT: fuyipeng modify for OIS -----end
+#endif // CONFIG_BOARD_NUBIA
 	} cfg;
 };
 

@@ -16,6 +16,15 @@
 #include "msm_sd.h"
 #include "msm_actuator.h"
 #include "msm_cci.h"
+#ifdef CONFIG_BOARD_NUBIA
+#include <linux/kthread.h>
+#include <linux/slab.h>
+#include <linux/sched.h>
+
+// ZTEMT: fuyipeng add manual AF -----start
+#define ZTE_ACTUATOR_MAF_OFFSET 100
+// ZTEMT: fuyipeng add manual AF -----end
+#endif
 
 DEFINE_MSM_MUTEX(msm_actuator_mutex);
 
@@ -31,6 +40,14 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #define PARK_LENS_SMALL_STEP 3
 #define MAX_QVALUE 4096
 
+#ifdef CONFIG_BOARD_NUBIA
+// ZTEMT: fuyipeng modify for LC898123 -----start
+extern int32_t msm_ois_lc898123_init_AF(void);
+extern void msm_ois_setFocusPosition(unsigned short pos);
+extern void msm_ois_lc898123_set_stillmovie_mode(int mode);
+extern void msm_ois_lc898123_enable(int enable);
+// ZTEMT: fuyipeng modify for LC898123 -----end
+#endif
 static struct v4l2_file_operations msm_actuator_v4l2_subdev_fops;
 static int32_t msm_actuator_power_up(struct msm_actuator_ctrl_t *a_ctrl);
 static int32_t msm_actuator_power_down(struct msm_actuator_ctrl_t *a_ctrl);
@@ -48,6 +65,9 @@ static struct msm_actuator *actuators[] = {
 	&msm_bivcm_actuator_table,
 };
 
+static struct msm_read_temperature_t read_temperature_t;
+static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl;
+static int is_readtemp_stop = 0;
 static int32_t msm_actuator_piezo_set_default_focus(
 	struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_move_params_t *move_params)
@@ -100,6 +120,24 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 	write_arr = a_ctrl->reg_tbl;
 	i2c_tbl = a_ctrl->i2c_reg_tbl;
 
+#ifdef CONFIG_BOARD_NUBIA
+	/* ZTEMT: fengxun add for AF --------Start */
+	if (!strncmp(a_ctrl->act_name, "dw9790a", 6) && size == 2)
+	{
+		i2c_tbl[0].reg_addr = write_arr[0].reg_addr;
+		i2c_tbl[0].delay = delay;
+		i2c_tbl[0].reg_data = ((next_lens_position <<write_arr[0].data_shift) & 0xFF00) >> 8;
+	
+		i2c_tbl[1].reg_addr = write_arr[1].reg_addr;
+		i2c_tbl[1].delay = delay;
+		i2c_tbl[1].reg_data = (next_lens_position <<write_arr[1].data_shift) & 0xFF;
+	
+		a_ctrl->i2c_tbl_index = 2;
+	
+		return;
+	}
+	/* ZTEMT: fengxun add for AF --------End */
+#endif
 	for (i = 0; i < size; i++) {
 		/* check that the index into i2c_tbl cannot grow larger that
 		the allocated size of i2c_tbl */
@@ -113,6 +151,36 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 				write_arr[i].hw_shift);
 
 			if (write_arr[i].reg_addr != 0xFFFF) {
+#ifdef CONFIG_BOARD_NUBIA
+				// ZTEMT: fuyipeng modify for LC898123 -----start
+				if (!strncmp(a_ctrl->act_name, "lc898123", 32))
+				{
+					i2c_byte1 = (value & 0xFF00) >> 8;
+					i2c_byte2 = value & 0xFF;
+					// pr_err("2c_byte2:%d", i2c_byte2);
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = write_arr[i].reg_addr;
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = 0x00;
+					i2c_tbl[a_ctrl->i2c_tbl_index].delay = delay;
+					a_ctrl->i2c_tbl_index++;
+
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = write_arr[i].reg_addr;
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = 0x01;
+					i2c_tbl[a_ctrl->i2c_tbl_index].delay = delay;
+					a_ctrl->i2c_tbl_index++;
+
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = write_arr[i].reg_addr;
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = i2c_byte1;
+					i2c_tbl[a_ctrl->i2c_tbl_index].delay = delay;
+					a_ctrl->i2c_tbl_index++;
+
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_addr = write_arr[i].reg_addr;
+					i2c_tbl[a_ctrl->i2c_tbl_index].reg_data = i2c_byte2;
+					i2c_tbl[a_ctrl->i2c_tbl_index].delay = delay;
+					a_ctrl->i2c_tbl_index++;
+					continue;
+				}
+				// ZTEMT: fuyipeng modify for LC898123 -----end
+#endif
 				i2c_byte1 = write_arr[i].reg_addr;
 				i2c_byte2 = value;
 				if (size != (i+1)) {
@@ -349,6 +417,77 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 	return rc;
 }
 
+#ifdef CONFIG_BOARD_NUBIA
+// ZTEMT: fuyipeng modify for LC898123 -----start
+static int32_t msm_actuator_Write32B(struct msm_camera_i2c_client *client,
+	struct msm_camera_i2c_reg_setting *write_setting)
+{
+	int32_t rc = 0;
+	uint8_t reg_data[4];
+	unsigned short reg_addr;
+
+	if (client == NULL || write_setting == NULL)
+	{
+		return -1;
+	}
+
+	reg_addr = write_setting->reg_setting[0].reg_addr;
+	reg_data[0] = (uint8_t)write_setting->reg_setting[0].reg_data;
+	reg_data[1] = (uint8_t)write_setting->reg_setting[1].reg_data;
+	reg_data[2] = (uint8_t)write_setting->reg_setting[2].reg_data;
+	reg_data[3] = (uint8_t)write_setting->reg_setting[3].reg_data;
+
+	rc = client->i2c_func_tbl->i2c_write_seq(client,
+		reg_addr,
+		reg_data,
+		4);
+	if (rc < 0)
+	{
+		pr_err("failed \n");
+	}
+	
+	return rc;
+}
+
+static int32_t msm_actuator_cci_i2c_write_table_w_microdelay(
+	struct msm_camera_i2c_client *client,
+	struct msm_camera_i2c_reg_setting *write_setting)
+{
+	int32_t rc = 0;
+
+	if (write_setting->size == 4)
+	{
+		rc = msm_actuator_Write32B(client, write_setting);
+		if (rc < 0) {
+			pr_err("%s Failed I2C write Line %d\n",
+				__func__, __LINE__);
+		}
+		return rc;
+	}
+
+	return msm_camera_cci_i2c_write_table_w_microdelay(client, write_setting);
+}
+
+static int32_t msm_actuator_qup_i2c_write_table_w_microdelay(
+	struct msm_camera_i2c_client *client,
+	struct msm_camera_i2c_reg_setting *write_setting)
+{
+	int32_t rc = 0;
+
+	if (write_setting->size == 4)
+	{
+		rc = msm_actuator_Write32B(client, write_setting);
+		if (rc < 0) {
+			pr_err("%s Failed I2C write Line %d\n",
+				__func__, __LINE__);
+		}
+		return rc;
+	}
+
+	return msm_camera_qup_i2c_write_table_w_microdelay(client, write_setting);
+}
+// ZTEMT: fuyipeng modify for LC898123 -----end
+#endif
 static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 	uint16_t size, struct reg_settings_t *settings)
 {
@@ -357,6 +496,18 @@ static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 	enum msm_camera_i2c_reg_addr_type save_addr_type;
 	CDBG("Enter\n");
 
+#ifdef CONFIG_BOARD_NUBIA
+	// ZTEMT: fuyipeng modify for LC898123 -----start
+	if (!strncmp(a_ctrl->act_name, "lc898123", 32))
+	{
+		a_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+
+		rc = 0;
+		a_ctrl->curr_step_pos = 0;
+		return rc;
+	}
+	// ZTEMT: fuyipeng modify for LC898123 -----end
+#endif
 	save_addr_type = a_ctrl->i2c_client.addr_type;
 	for (i = 0; i < size; i++) {
 
@@ -433,6 +584,16 @@ static void msm_actuator_write_focus(
 	damping_code_step = damping_params->damping_step;
 	wait_time = damping_params->damping_delay;
 
+#ifdef CONFIG_BOARD_NUBIA
+	/* ZTEMT: fengxun add for AF --------Start */
+	if (!strncmp(a_ctrl->act_name, "dw9790a", 6) && damping_code_step == 0)
+	{
+		damping_code_step = 0x10;
+	}
+	CDBG("FX:curr_lens_pos = %0x code_boundary = %0x sign_direction = %0x\n",
+		curr_lens_pos,code_boundary,sign_direction);
+	/* ZTEMT: fengxun add for AF --------End */
+#endif
 	/* Write code based on damping_code_step in a loop */
 	for (next_lens_pos =
 		curr_lens_pos + (sign_direction * damping_code_step);
@@ -607,6 +768,9 @@ static int32_t msm_actuator_move_focus(
 	a_ctrl->i2c_tbl_index = 0;
 	CDBG("curr_step_pos =%d dest_step_pos =%d curr_lens_pos=%d\n",
 		a_ctrl->curr_step_pos, dest_step_pos, curr_lens_pos);
+#ifdef CONFIG_BOARD_NUBIA
+	preempt_disable(); // jixd add for high priority
+#endif
 
 	while (a_ctrl->curr_step_pos != dest_step_pos) {
 		step_boundary =
@@ -649,6 +813,9 @@ static int32_t msm_actuator_move_focus(
 	reg_setting.reg_setting = a_ctrl->i2c_reg_tbl;
 	reg_setting.data_type = a_ctrl->i2c_data_type;
 	reg_setting.size = a_ctrl->i2c_tbl_index;
+#ifdef CONFIG_BOARD_NUBIA
+	preempt_enable(); // jixd add for high priority
+#endif
 	rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_table_w_microdelay(
 		&a_ctrl->i2c_client, &reg_setting);
 	if (rc < 0) {
@@ -1084,6 +1251,9 @@ static int32_t msm_actuator_set_position(
 	uint16_t next_lens_position;
 	uint16_t delay;
 	uint32_t hw_params = 0;
+#ifdef CONFIG_BOARD_NUBIA
+	int step_boundary  = 0; // jixd 20160601 add for reset optimize
+#endif
 	struct msm_camera_i2c_reg_setting reg_setting;
 	CDBG("%s Enter %d\n", __func__, __LINE__);
 	if (set_pos->number_of_steps <= 0 ||
@@ -1104,9 +1274,32 @@ static int32_t msm_actuator_set_position(
 		return -EFAULT;
 	}
 
+#ifdef CONFIG_BOARD_NUBIA
+	// ZTEMT: fuyipeng add manual AF -----start
+	pr_err("msm_actuator_set_position---act_name:%s \n", a_ctrl->act_name);
+	if (!strncmp(a_ctrl->act_name, "rohm_bu64297gwz", 32)) 
+	{
+		hw_params = 0xF400;
+	}
+	// ZTEMT: fuyipeng add manual AF -----end
+#endif
 	a_ctrl->i2c_tbl_index = 0;
+#ifdef CONFIG_BOARD_NUBIA
+	step_boundary = a_ctrl->region_params[0].step_bound[MOVE_NEAR]; // jixd 20160601 add for reset optimize
+#endif
 	for (index = 0; index < set_pos->number_of_steps; index++) {
+#ifdef CONFIG_BOARD_NUBIA
+		// jixd 20160601 add for reset optimize ---start
+		if (set_pos->pos[index] < 0 || (set_pos->pos[index] > step_boundary -1))
+		{
+			break;
+		}
+		// jixd 20160601 add for reset optimize ---start
+		next_lens_position 
+			= a_ctrl->step_position_table[set_pos->pos[index]]; // jixd 20160601 add for reset optimize
+#else
 		next_lens_position = set_pos->pos[index];
+#endif
 		delay = set_pos->delay[index];
 		a_ctrl->func_tbl->actuator_parse_i2c_params(a_ctrl,
 			next_lens_position, hw_params, delay);
@@ -1124,6 +1317,9 @@ static int32_t msm_actuator_set_position(
 			return rc;
 		}
 		a_ctrl->i2c_tbl_index = 0;
+#ifdef CONFIG_BOARD_NUBIA
+		set_pos->dac_output = next_lens_position; // jixd 20160601 add for reset optimize
+#endif
 	}
 	CDBG("%s exit %d\n", __func__, __LINE__);
 	return rc;
@@ -1322,10 +1518,122 @@ static int msm_actuator_init(struct msm_actuator_ctrl_t *a_ctrl)
 			pr_err("cci_init failed\n");
 	}
 	a_ctrl->actuator_state = ACT_OPS_ACTIVE;
+#ifdef CONFIG_BOARD_NUBIA
+	a_ctrl->readtemp_thread = NULL; // ZTEMT: guxiaodong add for read temperature
+#endif
 	CDBG("Exit\n");
 	return rc;
 }
 
+#ifdef CONFIG_BOARD_NUBIA
+static int32_t msm_read_temperature_i2c_init(void)
+{
+	int32_t rc = 0;
+	struct msm_camera_cci_client *cci_client = NULL;
+	
+	CDBG("Enter\n");
+	
+	read_temperature_t.cci_master = 0;
+	read_temperature_t.cam_name = 0;
+	
+	read_temperature_t.i2c_client.i2c_func_tbl = &msm_sensor_cci_func_tbl;
+	read_temperature_t.i2c_client.cci_client = NULL;
+	read_temperature_t.i2c_client.cci_client = kzalloc(sizeof(
+			struct msm_camera_cci_client), GFP_KERNEL);
+	
+	if (!read_temperature_t.i2c_client.cci_client) {
+		pr_err("failed no memory\n");
+		return -ENOMEM;
+	}
+	cci_client = read_temperature_t.i2c_client.cci_client;
+	cci_client->cci_subdev = msm_cci_get_subdev();
+	
+	read_temperature_t.i2c_client.cci_client->sid = 0x34 >> 1;
+	read_temperature_t.i2c_client.cci_client->retries = 3;
+	read_temperature_t.i2c_client.cci_client->id_map = 0;
+	read_temperature_t.i2c_client.cci_client->cci_i2c_master = 0;
+	read_temperature_t.i2c_client.cci_client->i2c_freq_mode = I2C_FAST_MODE;
+	CDBG("Exit\n");
+	return rc;
+}
+
+static int read_temperature(void *data)
+{
+	int32_t rc = 0;
+	int tmp_ois = 1, i = 0;
+	// struct msm_actuator_ctrl_t * a_ctrl = (struct msm_actuator_ctrl_t *)data;
+	uint16_t reg_data;
+	int32_t tmp_over_cnt = 0, tmp_down_cnt = 0;
+	msm_read_temperature_i2c_init();
+	read_temperature_t.i2c_client.cci_client->sid = 0x34 >> 1;
+	read_temperature_t.i2c_client.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+	rc = read_temperature_t.i2c_client.i2c_func_tbl->i2c_write(&read_temperature_t.i2c_client,
+		0x0138,
+		1,
+		MSM_CAMERA_I2C_BYTE_DATA);
+	if (rc < 0) {
+		pr_err("[xdgu] write sensor temperature error:%d\n", rc);
+	}
+	while (1)
+	{
+		for (i = 0; i < 150; i++)
+		{
+			if (is_readtemp_stop == 1)
+			{
+				break;
+			}
+			msleep(100);
+		}
+		if (read_temperature_t.i2c_client.cci_client != NULL)
+		{
+			rc = read_temperature_t.i2c_client.i2c_func_tbl->i2c_read(
+				&read_temperature_t.i2c_client,
+				0x013A,
+				&reg_data,
+				MSM_CAMERA_I2C_BYTE_DATA);
+			if (rc < 0)
+			{
+				pr_err("[xdgu] read sensor temperature error:%d\n", rc);
+			}
+		}
+		else
+		{
+			// pr_err("[xdgu] disable OIS & stop the temperature thread");
+			// msm_ois_lc898123_enable(0);
+			break;
+		}
+		// pr_err("[xdgu] temperature = %d, tmp_over_cnt = %d, tmp_down_cnt = %d\n",
+			// reg_data, tmp_over_cnt, tmp_down_cnt);
+		if (reg_data > 58)
+		{
+			tmp_over_cnt++;
+			tmp_down_cnt = 0;
+			if (tmp_over_cnt > 1000)
+				tmp_over_cnt = 5;
+			if (tmp_over_cnt > 2 && (1 == tmp_ois))
+			{
+				pr_err("[xdgu] disable OIS!!");
+				msm_ois_lc898123_enable(0);
+				tmp_ois = 0;
+			}
+		}
+		else if ((reg_data <= 55 && reg_data >= 0) || (reg_data >= 0xed && reg_data < 0xff))
+		{
+			tmp_down_cnt++;
+			tmp_over_cnt = 0;
+			if (tmp_down_cnt > 1000)
+				tmp_down_cnt = 5;
+			if (tmp_down_cnt > 2 && (0 == tmp_ois))
+			{
+				pr_err("[xdgu] enable OIS!!");
+				msm_ois_lc898123_enable(1);
+				tmp_ois = 1;
+			}
+		}
+	}
+	return 0;
+}
+#endif
 static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 	void __user *argp)
 {
@@ -1361,6 +1669,66 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 			pr_err("init table failed %d\n", rc);
 		break;
 
+#ifdef CONFIG_BOARD_NUBIA
+	// ZTEMT: fuyipeng add for manual AF -----start
+	case CFG_SET_ACTUATOR_NAME:
+		if (NULL != cdata->cfg.act_name)
+		{
+			memcpy(a_ctrl->act_name,
+				cdata->cfg.act_name,
+				sizeof(a_ctrl->act_name));
+			pr_err("CFG_SET_ACTUATOR_NAME ---act_name:%s \n", a_ctrl->act_name);
+			if (!strncmp(a_ctrl->act_name, "lc898123", 32))
+			{
+				// msm_ois_lc898123_init_AF();
+				a_ctrl->ois_init = 0;
+			}
+		}
+		break;
+	// ZTEMT: fuyipeng add for manual AF -----end
+
+	// ZTEMT: fuyipeng modify for OIS -----start
+	case CFG_SET_OIS_MODE:
+		pr_err("CFG_SET_OIS_MODE --- ois_mode:%d \n", cdata->cfg.ois_mode);
+		if (strncmp(a_ctrl->act_name, "lc898123", 32) != 0)
+		{
+			break;
+		}
+		msm_ois_lc898123_set_stillmovie_mode(cdata->cfg.ois_mode);
+		break;
+
+	case CFG_OIS_ENABLE:
+		pr_err("CFG_OIS_ENABLE --- ois_enable:%d \n", cdata->cfg.ois_enable);
+		if (strncmp(a_ctrl->act_name, "lc898123", 32) != 0)
+		{
+			break;
+		}
+
+		if (a_ctrl->ois_init == 0)
+		{
+			msm_ois_lc898123_init_AF();
+			a_ctrl->ois_init = 1;
+		}
+
+		msm_ois_lc898123_enable(cdata->cfg.ois_enable);
+
+		/*
+		 * guxiaodong modify ois_lc898123_enable for overhot
+		 */
+		is_readtemp_stop = 0;
+		if (cdata->cfg.ois_enable == 1)
+		{
+			pr_err("[xdgu] cfg.ois_enable == 1\n");
+			a_ctrl->readtemp_thread = kthread_run(read_temperature, a_ctrl, "read_temperature");
+			if (IS_ERR(a_ctrl->readtemp_thread)) {
+				pr_err("[xdgu] failed to create kthread");
+				a_ctrl->readtemp_thread = NULL;
+			}
+		}
+
+		break;
+	// ZTEMT: fuyipeng modify for OIS -----end
+#endif
 	case CFG_SET_DEFAULT_FOCUS:
 		rc = a_ctrl->func_tbl->actuator_set_default_focus(a_ctrl,
 			&cdata->cfg.move);
@@ -1393,6 +1761,14 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 			pr_err("Failed actuator power up%d\n", rc);
 		break;
 
+#ifdef CONFIG_BOARD_NUBIA
+	/* ZTEMT: jixd add for af infinity calibration -----start */
+	case CFG_SET_INFINITY_POS:
+		a_ctrl->infinity_pos = cdata->cfg.infinity_pos;
+		pr_err("SET_INFINITY_POS %d\n", a_ctrl->infinity_pos);
+		break;
+	/* ZTEMT: jixd add for af infinity calibration -----end */
+#endif
 	default:
 		break;
 	}
@@ -1426,8 +1802,16 @@ static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl = {
 	.i2c_write = msm_camera_cci_i2c_write,
 	.i2c_write_table = msm_camera_cci_i2c_write_table,
 	.i2c_write_seq_table = msm_camera_cci_i2c_write_seq_table,
+#ifdef CONFIG_BOARD_NUBIA
+	// ZTEMT: fuyipeng modify for LC898123 -----start
+	.i2c_write_seq = msm_camera_cci_i2c_write_seq,
+	.i2c_write_table_w_microdelay =
+		msm_actuator_cci_i2c_write_table_w_microdelay,
+	// ZTEMT: fuyipeng modify for LC898123 -----end
+#else
 	.i2c_write_table_w_microdelay =
 		msm_camera_cci_i2c_write_table_w_microdelay,
+#endif
 	.i2c_util = msm_sensor_cci_i2c_util,
 	.i2c_poll =  msm_camera_cci_i2c_poll,
 };
@@ -1438,8 +1822,16 @@ static struct msm_camera_i2c_fn_t msm_sensor_qup_func_tbl = {
 	.i2c_write = msm_camera_qup_i2c_write,
 	.i2c_write_table = msm_camera_qup_i2c_write_table,
 	.i2c_write_seq_table = msm_camera_qup_i2c_write_seq_table,
+#ifdef CONFIG_BOARD_NUBIA
+	// ZTEMT: fuyipeng modify for LC898123 -----start
+	.i2c_write_seq = msm_camera_qup_i2c_write_seq,
+	.i2c_write_table_w_microdelay =
+		msm_actuator_qup_i2c_write_table_w_microdelay,
+	// ZTEMT: fuyipeng modify for LC898123 -----end
+#else
 	.i2c_write_table_w_microdelay =
 		msm_camera_qup_i2c_write_table_w_microdelay,
+#endif
 	.i2c_poll = msm_camera_qup_i2c_poll,
 };
 
@@ -1463,6 +1855,22 @@ static int msm_actuator_close(struct v4l2_subdev *sd,
 	kfree(a_ctrl->i2c_reg_tbl);
 	a_ctrl->i2c_reg_tbl = NULL;
 	a_ctrl->actuator_state = ACT_DISABLE_STATE;
+#ifdef CONFIG_BOARD_NUBIA
+	// ZTEMT: guxiaodong add for read temperature thread ---start
+	if (a_ctrl->readtemp_thread != NULL)
+	{
+		pr_err("[xdgu] stop thread E\n");
+		if (read_temperature_t.i2c_client.cci_client != NULL)
+		{
+			kfree(read_temperature_t.i2c_client.cci_client);
+			read_temperature_t.i2c_client.cci_client = NULL;
+		}
+		a_ctrl->readtemp_thread = NULL;
+		is_readtemp_stop = 1;
+		pr_err("[xdgu] kthread_stop X\n");
+	}
+	// ZTEMT: guxiaodong add for read temperature thread ---end
+#endif
 	mutex_unlock(a_ctrl->actuator_mutex);
 	CDBG("Exit\n");
 	return rc;
@@ -1589,6 +1997,29 @@ static long msm_actuator_subdev_do_ioctl(
 
 			parg = &actuator_data;
 			break;
+#ifdef CONFIG_BOARD_NUBIA
+		// ZTEMT: fuyipeng add for manual AF -----start
+		case CFG_SET_ACTUATOR_NAME:
+			actuator_data.cfgtype = u32->cfgtype;
+			actuator_data.cfg.act_name = u32->cfg.act_name;
+			parg = &actuator_data;
+			break;
+		// ZTEMT: fuyipeng add for manual AF -----end
+
+		// ZTEMT: fuyipeng modify for OIS -----start
+		case CFG_SET_OIS_MODE:
+			actuator_data.cfgtype = u32->cfgtype;
+			actuator_data.cfg.ois_mode = u32->cfg.ois_mode;
+			parg = &actuator_data;
+			break;
+
+		case CFG_OIS_ENABLE:
+			actuator_data.cfgtype = u32->cfgtype;
+			actuator_data.cfg.ois_enable = u32->cfg.ois_enable;
+			parg = &actuator_data;
+			break;
+		// ZTEMT: fuyipeng modify for OIS -----end
+#endif
 		case CFG_SET_DEFAULT_FOCUS:
 		case CFG_MOVE_FOCUS:
 			actuator_data.cfgtype = u32->cfgtype;
@@ -1617,6 +2048,15 @@ static long msm_actuator_subdev_do_ioctl(
 			memcpy(&actuator_data.cfg.setpos, &(u32->cfg.setpos),
 				sizeof(struct msm_actuator_set_position_t));
 			break;
+#ifdef CONFIG_BOARD_NUBIA
+		/* ZTEMT: jixd add for af infinity calibration -----start */
+		case CFG_SET_INFINITY_POS:
+			actuator_data.cfgtype = u32->cfgtype;
+			actuator_data.cfg.infinity_pos = u32->cfg.infinity_pos;
+			parg = &actuator_data;
+			break;
+		/* ZTEMT: jixd add for af infinity calibration -----end */
+#endif
 		default:
 			actuator_data.cfgtype = u32->cfgtype;
 			parg = &actuator_data;

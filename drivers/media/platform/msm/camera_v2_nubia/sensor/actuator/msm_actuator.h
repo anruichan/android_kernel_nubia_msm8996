@@ -27,6 +27,11 @@
 
 #define	MSM_ACTUATOT_MAX_VREGS (10)
 #define	ACTUATOR_MAX_POLL_COUNT 10
+#ifdef CONFIG_BOARD_NUBIA
+// ZTEMT: li.bin223 20150421 add for avoid kernel crash ----start
+#define	MSM_ACTUATOT_MAX_NAME (32)
+// ZTEMT: li.bin223 20150421 add for avoid kernel crash ----end
+#endif
 
 struct msm_actuator_ctrl_t;
 
@@ -105,6 +110,23 @@ struct msm_actuator_ctrl_t {
 	struct msm_actuator_vreg vreg_cfg;
 	struct park_lens_data_t park_lens;
 	uint32_t max_code_size;
+#ifdef CONFIG_BOARD_NUBIA
+	// ZTEMT: fuyipeng add for manual AF -----start
+	char act_name[MSM_ACTUATOT_MAX_NAME];
+	// ZTEMT: fuyipeng add for manual AF -----end
+	int infinity_pos; //ZTEMT:jixd add af infinity calibration
+	int ois_init; // ZTEMT: fuyipeng modify for OIS
+	struct task_struct *readtemp_thread;
+    uint16_t present_ois_state;
+#endif
 };
+#ifdef CONFIG_BOARD_NUBIA
+struct msm_read_temperature_t {
+	struct msm_camera_i2c_client i2c_client;
+	enum af_camera_name cam_name;
+	enum msm_actuator_data_type i2c_data_type;
+	enum cci_i2c_master_t cci_master;
+};
+#endif
 
 #endif
