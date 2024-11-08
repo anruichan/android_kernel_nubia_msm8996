@@ -36,6 +36,9 @@
 #include "dsi-panel-jdi-1080p-video.dtsi"
 #include "dsi-panel-truly-1080p-video.dtsi"
 #include "dsi-panel-truly-1080p-cmd.dtsi"
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+#include "nubia_panel/nubia_panel.dtsi"
+#endif
 
 &soc {
 	dsi_panel_pwr_supply: dsi_panel_pwr_supply {
@@ -145,6 +148,39 @@
 	};
 };
 
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+&dsi_sp_1080p_5p5_video {
+	qcom,mdss-dsi-panel-timings-phy-v2 = [23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 2e 06 08 05 03 04 a0];
+};
+
+&dsi_sp_1080p_5p5 {
+	qcom,mdss-dsi-panel-timings-phy-v2 = [23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 2e 06 08 05 03 04 a0];
+};
+
+&jdi_dsi_sp_1080p_5p5_video {
+	qcom,mdss-dsi-panel-timings-phy-v2 = [23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 20 06 09 05 03 04 a0
+		23 2e 06 08 05 03 04 a0];
+};
+
+&jdi_dsi_sp_1080p_5p5 {
+	qcom,mdss-dsi-panel-timings-phy-v2 = [23 1f 07 09 05 03 04 a0
+		23 1f 07 09 05 03 04 a0
+		23 1f 07 09 05 03 04 a0
+		23 1f 07 09 05 03 04 a0
+		23 19 08 08 05 03 04 a0];
+};
+#endif
 &dsi_nt35950_4k_dsc_cmd {
 	qcom,mdss-dsi-panel-timings-phy-v2 = [21 1e 06 08 04 03 04 a0
 		21 1e 06 08 04 03 04 a0

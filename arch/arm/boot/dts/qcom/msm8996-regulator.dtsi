@@ -232,6 +232,9 @@
 			proxy-supply = <&pm8994_l14>;
 			qcom,proxy-consumer-enable;
 			qcom,proxy-consumer-current = <10000>;
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+			regulator-always-on;
+#endif
 			status = "okay";
 		};
 	};
@@ -259,9 +262,15 @@
 	rpm-regulator-ldoa17 {
 		status = "okay";
 		pm8994_l17: regulator-l17 {
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			qcom,init-voltage = <1800000>;
+#else
 			regulator-min-microvolt = <2500000>;
 			regulator-max-microvolt = <2500000>;
 			qcom,init-voltage = <2500000>;
+#endif
 			status = "okay";
 		};
 	};
@@ -269,12 +278,20 @@
 	rpm-regulator-ldoa18 {
 		status = "okay";
 		pm8994_l18: regulator-l18 {
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <1800000>;
+			qcom,init-voltage = <1800000>;
+			regulator-boot-on;
+#else
 			regulator-min-microvolt = <2700000>;
 			regulator-max-microvolt = <2900000>;
 			qcom,init-voltage = <2700000>;
+#endif
 			status = "okay";
 		};
 
+#ifndef CONFIG_BOARD_NUBIA_NX531J
 		pm8994_l18_pin_ctrl: regulator-l18-pin-ctrl {
 			compatible = "qcom,rpm-smd-regulator";
 			regulator-name = "pm8994_l18_pin_ctrl";
@@ -288,12 +305,17 @@
 			 */
 			qcom,enable-with-pin-ctrl = <0 4>;
 		};
+#endif
 	};
 
 	rpm-regulator-ldoa19 {
 		status = "okay";
 		pm8994_l19: regulator-l19 {
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+			regulator-min-microvolt = <2800000>; // ZTEMT: guxiaodong modify for camera
+#else
 			regulator-min-microvolt = <3000000>;
+#endif
 			regulator-max-microvolt = <3000000>;
 			qcom,init-voltage = <3000000>;
 			status = "okay";
@@ -323,9 +345,15 @@
 	rpm-regulator-ldoa22 {
 		status = "okay";
 		pm8994_l22: regulator-l22 {
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+			regulator-min-microvolt = <2850000>;
+			regulator-max-microvolt = <3100000>;
+			qcom,init-voltage = <2850000>;
+#else
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
 			qcom,init-voltage = <3300000>;
+#endif
 			status = "okay";
 		};
 	};
@@ -390,8 +418,13 @@
 		status = "okay";
 		pm8994_l27: regulator-l27 {
 			regulator-min-microvolt = <1000000>;
+#ifdef CONFIG_BOARD_NUBIA_NX531J
+			regulator-max-microvolt = <1200000>; // ZTEMT: guxiaodong modify from 1.0 to 1.2v for front camera
+			qcom,init-voltage = <1200000>; // ZTEMT: guxiaodong modify from 1.0 to 1.2v for front camera
+#else
 			regulator-max-microvolt = <1000000>;
 			qcom,init-voltage = <1000000>;
+#endif
 			status = "okay";
 		};
 	};
