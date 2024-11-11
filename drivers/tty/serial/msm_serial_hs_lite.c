@@ -93,6 +93,12 @@ struct msm_hsl_port {
 	u32			bus_perf_client;
 	/* BLSP UART required BUS Scaling data */
 	struct msm_bus_scale_pdata *bus_scale_table;
+#ifdef CONFIG_BOARD_NUBIA
+	bool use_pinctrl;
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *pinctrl_active;
+	struct pinctrl_state *pinctrl_sleep;
+#endif
 };
 
 #define UARTDM_VERSION_11_13	0
@@ -1687,6 +1693,58 @@ static struct msm_serial_hslite_platform_data
 	return pdata;
 }
 
+#ifdef CONFIG_BOARD_NUBIA
+/* added  by nubia starts */
+static int msm_serial_hsl_pinctrl_init(struct uart_port *uport)
+{
+	struct pinctrl_state *set_state;
+	struct msm_hsl_port *msm_uport = UART_TO_MSM(uport);
+
+	msm_uport->pinctrl = devm_pinctrl_get(uport->dev);
+	if (IS_ERR_OR_NULL(msm_uport->pinctrl)) {
+		pr_err("%s(): Pinctrl not defined", __func__);
+	} else {
+		pr_err("%s(): Using Pinctrl", __func__);
+		set_state = pinctrl_lookup_state(msm_uport->pinctrl,
+						PINCTRL_STATE_DEFAULT);
+		if (IS_ERR_OR_NULL(set_state)) {
+			dev_err(uport->dev,
+				"pinctrl lookup failed for active state");
+			goto pinctrl_fail;
+		}
+		msm_uport->pinctrl_active= set_state;
+		set_state = pinctrl_lookup_state(msm_uport->pinctrl,
+						PINCTRL_STATE_SLEEP);
+		if (IS_ERR_OR_NULL(set_state)) {
+			dev_err(uport->dev,
+				"pinctrl lookup failed for sleep state");
+			goto pinctrl_fail;
+		}
+		msm_uport->pinctrl_sleep= set_state;
+		msm_uport->use_pinctrl = true;
+		return 0;
+	}
+pinctrl_fail:
+	msm_uport->pinctrl = NULL;
+	msm_uport->use_pinctrl = false;
+	return -1;
+}
+static int msm_serial_hsl_pinctrl_set(struct uart_port *uport, bool flag) {
+	struct msm_hsl_port *msm_uport = UART_TO_MSM(uport);
+	int ret=-1;
+	if (!IS_ERR_OR_NULL(msm_uport->pinctrl)) {
+		if (flag) {
+			ret=pinctrl_select_state(msm_uport->pinctrl, msm_uport->pinctrl_active);
+			if (ret) pr_err("%s(): Error selecting active state\n",__func__);
+		} else {
+			ret=pinctrl_select_state(msm_uport->pinctrl, msm_uport->pinctrl_sleep);
+			if (ret) pr_err("%s(): Error selecting sleep state\n",__func__);
+		}
+	}
+	return ret;
+}
+/* added by nubia ends */
+#endif
 static atomic_t msm_serial_hsl_next_id = ATOMIC_INIT(0);
 
 static int msm_serial_hsl_probe(struct platform_device *pdev)
@@ -1732,7 +1790,19 @@ static int msm_serial_hsl_probe(struct platform_device *pdev)
 	port = get_port_from_line(line);
 	port->dev = &pdev->dev;
 	port->uartclk = 7372800;
+#ifdef CONFIG_BOARD_NUBIA
+	// add by nubia
+	msm_serial_hsl_pinctrl_init(port);
 	msm_hsl_port = UART_TO_MSM(port);
+	if (msm_hsl_port->use_pinctrl) {
+		ret =msm_serial_hsl_pinctrl_set(port,true);
+		if (ret != 0) {
+			pr_err("%s(): Error setting initial pinctrl state",__func__);
+		}
+	}
+#else
+	msm_hsl_port = UART_TO_MSM(port);
+#endif
 
 	msm_hsl_port->clk = clk_get(&pdev->dev, "core_clk");
 	if (unlikely(IS_ERR(msm_hsl_port->clk))) {
@@ -1880,6 +1950,10 @@ static int msm_serial_hsl_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct uart_port *port;
+#ifdef CONFIG_BOARD_NUBIA
+	int ret;
+	struct msm_hsl_port *msm_hsl_port;
+#endif
 	port = get_port_from_line(get_line(pdev));
 
 	if (port) {
@@ -1887,6 +1961,14 @@ static int msm_serial_hsl_suspend(struct device *dev)
 		if (is_console(port))
 			msm_hsl_deinit_clock(port);
 
+#ifdef CONFIG_BOARD_NUBIA
+		msm_hsl_port=UART_TO_MSM(port);
+		if (msm_hsl_port->use_pinctrl) {
+			ret =msm_serial_hsl_pinctrl_set(port, false);
+			if (ret)
+				pr_err("%s(): Error setting suspend pinctrl state",__func__);
+		}
+#endif
 		uart_suspend_port(&msm_hsl_uart_driver, port);
 		if (device_may_wakeup(dev))
 			enable_irq_wake(port->irq);
@@ -1899,6 +1981,10 @@ static int msm_serial_hsl_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct uart_port *port;
+#ifdef CONFIG_BOARD_NUBIA
+	int ret;
+	struct msm_hsl_port *msm_hsl_port;
+#endif
 	port = get_port_from_line(get_line(pdev));
 
 	if (port) {
@@ -1906,6 +1992,14 @@ static int msm_serial_hsl_resume(struct device *dev)
 		uart_resume_port(&msm_hsl_uart_driver, port);
 		if (device_may_wakeup(dev))
 			disable_irq_wake(port->irq);
+#ifdef CONFIG_BOARD_NUBIA
+		msm_hsl_port=UART_TO_MSM(port);
+		if (msm_hsl_port->use_pinctrl) {
+			ret =msm_serial_hsl_pinctrl_set(port, true);
+			if (ret)
+				pr_err("%s(): Error setting active pinctrl state",__func__);
+		}
+#endif
 
 		if (is_console(port))
 			msm_hsl_init_clock(port);
