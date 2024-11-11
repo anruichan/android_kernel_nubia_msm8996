@@ -25,6 +25,9 @@
 #include <linux/of_device.h>
 #include <linux/radix-tree.h>
 #include <linux/qpnp/pwm.h>
+#ifdef CONFIG_BOARD_NUBIA
+#include <linux/delay.h>
+#endif
 
 #define QPNP_LPG_DRIVER_NAME	"qcom,qpnp-pwm"
 #define QPNP_LPG_CHANNEL_BASE	"qpnp-lpg-channel-base"
@@ -1126,6 +1129,9 @@ static int qpnp_lpg_configure_lut_state(struct qpnp_pwm_chip *chip,
 	if (rc)
 		return rc;
 
+#ifdef CONFIG_BOARD_NUBIA
+	mdelay(5);
+#endif
 	if (state == QPNP_LUT_ENABLE
 		|| (chip->sub_type == QPNP_LPG_CHAN_SUB_TYPE
 		&& chip->revision == QPNP_LPG_REVISION_0))
