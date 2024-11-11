@@ -16,6 +16,12 @@
 /* max 20mhz channel count */
 #define CNSS_MAX_CH_NUM		45
 
+#ifdef CONFIG_BOARD_NUBIA
+extern const char* ztemt_get_hw_wifi(void);
+#define SFEFG77B_WIFI_FRONT_END_VERSION "wifi_samsung"
+#define QM48184_WIFI_FRONT_END_VERSION "wifi_qorvo"
+#endif
+
 struct cnss_cap_tsf_info {
 	int irq_num;
 	void *context;
