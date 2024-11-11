@@ -39,4 +39,8 @@ struct msm_rpm_master_stats_platform_data {
 	 u32 master_offset;
 	 u32 version;
 };
+#ifdef CONFIG_BOARD_NUBIA
+int msm_rpm_master_stats_get(char *buf);
+u32 msm_rpmstats_get(char *buf);
+#endif
 #endif
