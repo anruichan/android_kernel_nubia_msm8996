@@ -476,6 +476,15 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 		if (tsk->flags & PF_KTHREAD)
 			continue;
 
+#ifdef CONFIG_BOARD_NUBIA
+		// nubia add
+		// Skip 'D' state but not frozen process. The frozen process can
+		// be killed by 'process frozen function'
+		if ((tsk->state & TASK_UNINTERRUPTIBLE) && (!(tsk->flags & PF_FROZEN))) {
+			continue;
+		}
+		// nubia add end
+#endif
 		/* if task no longer has any memory ignore it */
 		if (test_task_flag(tsk, TIF_MM_RELEASED))
 			continue;
