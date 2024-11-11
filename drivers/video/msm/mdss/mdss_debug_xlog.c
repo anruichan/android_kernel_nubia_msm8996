@@ -23,12 +23,20 @@
 #include "mdss_debug.h"
 
 #ifdef CONFIG_FB_MSM_MDSS_XLOG_DEBUG
+#ifdef CONFIG_BOARD_NUBIA
+#define XLOG_DEFAULT_ENABLE 0
+#else
 #define XLOG_DEFAULT_ENABLE 1
+#endif // CONFIG_BOARD_NUBIA
 #else
 #define XLOG_DEFAULT_ENABLE 0
 #endif
 
+#ifdef CONFIG_BOARD_NUBIA
+#define XLOG_DEFAULT_PANIC 0
+#else
 #define XLOG_DEFAULT_PANIC 1
+#endif
 #define XLOG_DEFAULT_REGDUMP 0x2 /* dump in RAM */
 #define XLOG_DEFAULT_DBGBUSDUMP 0x2 /* dump in RAM */
 #define XLOG_DEFAULT_VBIF_DBGBUSDUMP 0x2 /* dump in RAM */
