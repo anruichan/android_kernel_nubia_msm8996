@@ -42,6 +42,10 @@ static DECLARE_WAIT_QUEUE_HEAD(suspend_freeze_wait_head);
 
 enum freeze_state __read_mostly suspend_freeze_state;
 static DEFINE_SPINLOCK(suspend_freeze_lock);
+#ifdef CONFIG_ZTEMT_POWER_DEBUG
+bool wakeup_rpm_stats_debug = false;
+bool wakeup_wake_lock_debug = false;
+#endif
 
 void freeze_set_ops(const struct platform_freeze_ops *ops)
 {
@@ -420,6 +424,10 @@ int suspend_devices_and_enter(suspend_state_t state)
 	if (error)
 		goto Close;
 
+#ifdef CONFIG_ZTEMT_POWER_DEBUG
+	wakeup_wake_lock_debug = true;
+	wakeup_rpm_stats_debug  = true;
+#endif // CONFIG_ZTEMT_POWER_DEBUG
 	suspend_console();
 	suspend_test_start();
 	error = dpm_suspend_start(PMSG_SUSPEND);
